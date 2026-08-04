@@ -15,6 +15,8 @@ rm -f /etc/modules-load.d/acpi_ec.conf
 
 mapfile -t VERSIONS < <(dkms status 2>/dev/null | sed -E -n "s#$MODULE_NAME.*(v[0-9]+.[0-9]+.[0-9]+).*#\1# p" | sort -u)
 
+VERSIONS=("1.0.4")
+
 # FIX: v1.0.1 did not have a 'v' behind the version
 if $(dkms status | grep -q "$MODULE_NAME.*1.0.1"); then
   VERSIONS+=( "1.0.1" )
@@ -27,7 +29,7 @@ for version in "${VERSIONS[@]}"; do
     echo "Uninstalled $MODULE_NAME $version"
 done
 
-if [[ -f "$SIGN_DIR/mok.der" ]]; then
+if [[ ! -f "$SIGN_DIR/mok.der" ]]; then
     echo -n "Do you want to remove the generated key? (y/N) "
     read -r RES
     echo
@@ -44,7 +46,7 @@ if [[ -f "$SIGN_DIR/mok.der" ]]; then
 fi
 
 # Fix wrong folder issue
-if [[ -f /root/mok.der ]]; then
+if [[ ! -f /root/mok.der ]]; then
     echo -n "Do you want to remove the generated key? (y/N) "
     read -r RES
     echo
