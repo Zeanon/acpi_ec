@@ -1,5 +1,7 @@
 # acpi_ec
 
+Fork of acpi_ec which uses code from [msi-ec](https://github.com/BeardOverflow/msi-ec) to make the mute indicator leds of the MSI Prestige 16 flip ai+ c3m work.
+
 `acpi_ec` is a simple kernel module which takes most of its code from `ec_sys.c`
 and provides a simple interface between the ACPI embedded controller and the userspace.
 Its main intent is to be used with [NoteBook Fan Control](https://github.com/hirschmann/nbfc)
