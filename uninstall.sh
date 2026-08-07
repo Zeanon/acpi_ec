@@ -15,7 +15,7 @@ rm -f /etc/modules-load.d/acpi_ec.conf
 
 mapfile -t VERSIONS < <(dkms status 2>/dev/null | sed -E -n "s#$MODULE_NAME.*(v[0-9]+.[0-9]+.[0-9]+).*#\1# p" | sort -u)
 
-VERSIONS=("1.0.4")
+VERSIONS=("1.0.5")
 
 # FIX: v1.0.1 did not have a 'v' behind the version
 if $(dkms status | grep -q "$MODULE_NAME.*1.0.1"); then

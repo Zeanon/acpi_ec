@@ -26,7 +26,7 @@ MODULE_AUTHOR("Vinzenz Hassert <thezeanon@gmail.com>");
 MODULE_DESCRIPTION("ACPI EC access driver for MSI Prestige 16 Flip AI+ C3M");
 MODULE_LICENSE("GPL");
 
-static DEFINE_MUTEX(ec_set_bit_mutex);
+static DEFINE_MUTEX(set_ec_bit_mutex);
 
 #define EC_SPACE_SIZE 256
 
@@ -45,7 +45,9 @@ static dev_t first_dev;
 static struct cdev c_dev;
 static struct class *dev_class;
 
-static ssize_t acpi_ec_read(struct file *f, char __user *buf, size_t count,
+static ssize_t acpi_ec_read(struct file *f,
+                            char __user *buf,
+                            size_t count,
                             loff_t *off) {
   unsigned int size = EC_SPACE_SIZE;
   loff_t init_off = *off;
@@ -78,8 +80,10 @@ static ssize_t acpi_ec_read(struct file *f, char __user *buf, size_t count,
   return count;
 }
 
-static ssize_t acpi_ec_write(struct file *f, const char __user *buf,
-                             size_t count, loff_t *off) {
+static ssize_t acpi_ec_write(struct file *f,
+                             const char __user *buf,
+                             size_t count,
+                             loff_t *off) {
   unsigned int size = count;
   loff_t init_off = *off;
   int err = 0;
@@ -109,8 +113,7 @@ static ssize_t acpi_ec_write(struct file *f, const char __user *buf,
   return count;
 }
 
-static int ec_read_seq(u8 addr, u8 *buf, u8 len)
-{
+static int ec_read_seq(const u8 addr, u8 *buf, const u8 len) {
 	int result;
 	for (u8 i = 0; i < len; i++) {
 		result = ec_read(addr + i, buf + i);
@@ -120,12 +123,11 @@ static int ec_read_seq(u8 addr, u8 *buf, u8 len)
 	return 0;
 }
 
-static inline int ec_set_bit(u8 addr, u8 bit, bool value)
-{
+static inline int set_ec_bit(const u8 addr, const u8 bit, const bool value) {
 	int result;
 	u8 stored;
 
-	mutex_lock(&ec_set_bit_mutex);
+	mutex_lock(&set_ec_bit_mutex);
 	result = ec_read(addr, &stored);
 	if (result < 0)
 		goto unlock;
@@ -138,16 +140,15 @@ static inline int ec_set_bit(u8 addr, u8 bit, bool value)
 	result = ec_write(addr, stored);
 
 unlock:
-	mutex_unlock(&ec_set_bit_mutex);
+	mutex_unlock(&set_ec_bit_mutex);
 	return result;
 }
 
 static int micmute_led_sysfs_set(struct led_classdev *led_cdev,
-				                         enum led_brightness brightness)
-{
+				                         enum led_brightness brightness) {
 	int result;
 
-	result = ec_set_bit(MIC_MUTE_LED_ADDRESS, MUTE_LED_BIT, brightness);
+	result = set_ec_bit(MIC_MUTE_LED_ADDRESS, MUTE_LED_BIT, brightness);
 
 	if (result < 0)
 		return result;
@@ -156,11 +157,10 @@ static int micmute_led_sysfs_set(struct led_classdev *led_cdev,
 }
 
 static int mute_led_sysfs_set(struct led_classdev *led_cdev, 
-                              enum led_brightness brightness)
-{
+                              enum led_brightness brightness) {
 	int result;
 
-	result = ec_set_bit(MUTE_LED_ADDRESS, MUTE_LED_BIT, brightness);
+	result = set_ec_bit(MUTE_LED_ADDRESS, MUTE_LED_BIT, brightness);
 
 	if (result < 0)
 		return result;
