@@ -37,6 +37,11 @@ static DEFINE_MUTEX(set_ec_bit_mutex);
 #define MUTE_LED_ADDRESS 0x2D
 #define MIC_MUTE_LED_ADDRESS 0x2C
 
+#define KEYBOARD_BACKLIGHT_STATE_ADDRESS 0xD3
+#define KEYBOARD_BACKLIGHT_STATE_BASE_VALUE 0x80
+#define KEYBOARD_BACKLIGHT_MAX_STATE 3
+#define MSI_EC_KBD_BL_STATE_MASK 0x3
+
 extern int ec_read(u8 addr, u8 *val);
 extern int ec_write(u8 addr, u8 val);
 extern struct acpi_ec *first_ec;
@@ -168,6 +173,30 @@ static int mute_led_sysfs_set(struct led_classdev *led_cdev,
 	return 0;
 }
 
+static enum led_brightness kbd_bl_sysfs_get(struct led_classdev *led_cdev)
+{
+	u8 rdata;
+	const int result = ec_read(KEYBOARD_BACKLIGHT_STATE_ADDRESS, &rdata);
+	if (result < 0)
+		return 0;
+	return rdata & MSI_EC_KBD_BL_STATE_MASK;
+}
+
+static int kbd_bl_sysfs_set(struct led_classdev *led_cdev,
+			    enum led_brightness brightness)
+{
+	// By default, on an unregister event,
+	// kernel triggers the setter with 0 brightness.
+	if (led_cdev->flags & LED_UNREGISTERING)
+		return 0;
+
+	u8 wdata;
+	if (brightness < 0 || brightness > KEYBOARD_BACKLIGHT_MAX_STATE)
+		return -1;
+	wdata = KEYBOARD_BACKLIGHT_STATE_BASE_VALUE | brightness;
+	return ec_write(KEYBOARD_BACKLIGHT_STATE_ADDRESS, wdata);
+}
+
 static const struct file_operations fops = {
     .owner = THIS_MODULE,
     .open = simple_open,
@@ -188,6 +217,14 @@ static struct led_classdev mute_led_cdev = {
 	.max_brightness = 1,
 	.brightness_set_blocking = &mute_led_sysfs_set,
 	.default_trigger = "audio-mute",
+};
+
+static struct led_classdev msiacpi_led_kbdlight = {
+	.name = "msiacpi::kbd_backlight",
+	.max_brightness = KEYBOARD_BACKLIGHT_MAX_STATE,
+	.flags = LED_BRIGHT_HW_CHANGED,
+	.brightness_set_blocking = &kbd_bl_sysfs_set,
+	.brightness_get = &kbd_bl_sysfs_get,
 };
 
 static int acpi_ec_create_dev(void) {
@@ -247,6 +284,13 @@ static int acpi_ec_create_dev(void) {
       led_classdev_unregister(&mute_led_cdev);
       goto error;
     }
+
+    printk(KERN_INFO "acpi_ec: adding keyboard backlight led device");
+    if ((err = led_classdev_register(NULL, &msiacpi_led_kbdlight)) < 0) {
+      printk(KERN_ERR "acpi_ec: Failed to add keyboard backlight led device\n");
+      led_classdev_unregister(&msiacpi_led_kbdlight);
+      goto error;
+    }
   } else {
     printk(KERN_INFO "acpi_ec: ec version '%s' not supported for mute indicator leds", ec_version);
   }
@@ -271,6 +315,7 @@ static void __exit acpi_ec_exit(void) {
   class_destroy(dev_class);
   led_classdev_unregister(&micmute_led_cdev);
   led_classdev_unregister(&mute_led_cdev);
+  led_classdev_unregister(&msiacpi_led_kbdlight);
   unregister_chrdev_region(first_dev, 1);
 }
 
