@@ -62,7 +62,10 @@ if ! (dkms status 2>/dev/null | grep -q "$MODULE_NAME/${VERSION}.*installed"); t
   sed -i "s/PACKAGE_VERSION=.*/PACKAGE_VERSION=\"$VERSION\"/" "$MOD_SRC_DIR/dkms.conf"
   dkms add -m "$MODULE_NAME" -v "$VERSION"
   dkms build -m "$MODULE_NAME" -v "$VERSION"
-  dkms install -m "$MODULE_NAME" -v "$VERSION"
+  # dkms install -m "$MODULE_NAME" -v "$VERSION"
+  for MODULE in $(ls /boot/initrd.img-* | cut -d- -f2-); do
+      sudo dkms install -m $MODULE_NAME -v $VERSION -k $MODULE
+  done
 
   # module auto-loading
   echo "acpi_ec" > /etc/modules-load.d/acpi_ec.conf
