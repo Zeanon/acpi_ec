@@ -10,6 +10,7 @@
  */
 
 // TODO: Add support for more than one EC controller.
+#include <acpi/battery.h>
 #include <linux/acpi.h>
 #include <linux/leds.h>
 #include <linux/cdev.h>
@@ -41,6 +42,8 @@ static DEFINE_MUTEX(set_ec_bit_mutex);
 #define KEYBOARD_BACKLIGHT_STATE_BASE_VALUE 0x80
 #define KEYBOARD_BACKLIGHT_MAX_STATE 3
 #define MSI_EC_KBD_BL_STATE_MASK 0x3
+
+#define BATTERY_THRESHOLD_ADDRESS 0xD7
 
 extern int ec_read(u8 addr, u8 *val);
 extern int ec_write(u8 addr, u8 val);
@@ -227,6 +230,145 @@ static struct led_classdev msiacpi_led_kbdlight = {
 	.brightness_get = &kbd_bl_sysfs_get,
 };
 
+static int get_end_threshold(u8 *out)
+{
+	u8 rdata;
+	int result;
+
+	result = ec_read(BATTERY_THRESHOLD_ADDRESS, &rdata);
+	if (result < 0)
+		return result;
+
+	rdata &= ~BIT(7); // last 7 bits contain the threshold
+
+	// the thresholds are unknown
+	if (rdata == 0)
+		return -ENODATA;
+
+	if (rdata < 10 || rdata > 100)
+		return -EINVAL;
+
+	*out = rdata;
+	return 0;
+}
+
+static int set_end_threshold(u8 value)
+{
+	if (value < 10 || value > 100)
+		return -EINVAL;
+
+	return ec_write(BATTERY_THRESHOLD_ADDRESS, value | BIT(7));
+}
+
+static ssize_t
+charge_control_start_threshold_show(struct device *device,
+				    struct device_attribute *attr, char *buf)
+{
+	int result;
+	u8 threshold;
+
+	result = get_end_threshold(&threshold);
+
+	if (result == -ENODATA)
+		return sysfs_emit(buf, "0\n");
+	else if (result < 0)
+		return result;
+
+	return sysfs_emit(buf, "%u\n", threshold - 10);
+}
+
+static ssize_t
+charge_control_start_threshold_store(struct device *dev,
+				     struct device_attribute *attr,
+				     const char *buf, size_t count)
+{
+	int result;
+	u8 threshold;
+
+	result = kstrtou8(buf, 10, &threshold);
+	if (result < 0)
+		return result;
+
+	result = set_end_threshold(threshold + 10);
+	if (result < 0)
+		return result;
+
+	return count;
+}
+
+static ssize_t charge_control_end_threshold_show(struct device *device,
+						 struct device_attribute *attr,
+						 char *buf)
+{
+	int result;
+	u8 threshold;
+
+	result = get_end_threshold(&threshold);
+
+	if (result == -ENODATA)
+		return sysfs_emit(buf, "0\n");
+	else if (result < 0)
+		return result;
+
+	return sysfs_emit(buf, "%u\n", threshold);
+}
+
+static ssize_t charge_control_end_threshold_store(struct device *dev,
+						  struct device_attribute *attr,
+						  const char *buf, size_t count)
+{
+	int result;
+	u8 threshold;
+
+	result = kstrtou8(buf, 10, &threshold);
+	if (result < 0)
+		return result;
+
+	result = set_end_threshold(threshold);
+	if (result < 0)
+		return result;
+
+	return count;
+}
+
+static DEVICE_ATTR_RW(charge_control_start_threshold);
+static DEVICE_ATTR_RW(charge_control_end_threshold);
+
+static struct attribute *msi_battery_attrs[] = {
+	&dev_attr_charge_control_start_threshold.attr,
+	&dev_attr_charge_control_end_threshold.attr,
+	NULL
+};
+
+ATTRIBUTE_GROUPS(msi_battery);
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6,2,0))
+static int msi_battery_add(struct power_supply *battery,
+			   struct acpi_battery_hook *hook)
+#else
+static int msi_battery_add(struct power_supply *battery)
+#endif
+{
+	return device_add_groups(&battery->dev, msi_battery_groups);
+}
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6,2,0))
+static int msi_battery_remove(struct power_supply *battery,
+			      struct acpi_battery_hook *hook)
+#else
+static int msi_battery_remove(struct power_supply *battery)
+#endif
+{
+	device_remove_groups(&battery->dev, msi_battery_groups);
+	return 0;
+}
+
+static struct acpi_battery_hook battery_hook = {
+	.add_battery = msi_battery_add,
+	.remove_battery = msi_battery_remove,
+	.name = "acpi_ec",
+};
+
 static int acpi_ec_create_dev(void) {
   int err = -1;
 
@@ -291,8 +433,11 @@ static int acpi_ec_create_dev(void) {
       led_classdev_unregister(&msiacpi_led_kbdlight);
       goto error;
     }
+
+    printk(KERN_INFO "acpi_ec: adding battery charge threshold control");
+    battery_hook_register(&battery_hook);
   } else {
-    printk(KERN_INFO "acpi_ec: ec version '%s' not supported for mute indicator leds", ec_version);
+    printk(KERN_INFO "acpi_ec: ec version '%s' not supported for mute indicator leds, keyboard backlight control and charge threshold settings", ec_version);
   }
 
   return 0;
@@ -316,6 +461,7 @@ static void __exit acpi_ec_exit(void) {
   led_classdev_unregister(&micmute_led_cdev);
   led_classdev_unregister(&mute_led_cdev);
   led_classdev_unregister(&msiacpi_led_kbdlight);
+  battery_hook_unregister(&battery_hook);
   unregister_chrdev_region(first_dev, 1);
 }
 
